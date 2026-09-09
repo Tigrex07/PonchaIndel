@@ -259,3 +259,7 @@ class AppLimpiador(ctk.CTk):
 if __name__ == "__main__":
   app = AppLimpiador()
   app.mainloop()
+
+
+
+  #jojo
