@@ -265,3 +265,5 @@ if __name__ == "__main__":
   #jojo
 
   #mario por favor :c
+
+  #cesar mi stand es gay ayuda
