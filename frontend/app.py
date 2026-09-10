@@ -3,8 +3,12 @@ import tkinter as tk
 from tkinter import filedialog, messagebox
 import customtkinter as ctk
 import pandas as pd
+
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
+
+from database.modelos import guardar_ponchadas_desde_df
+
 
 ctk.set_appearance_mode("System")
 ctk.set_default_color_theme("blue")
@@ -115,7 +119,6 @@ class AppLimpiador(ctk.CTk):
       df_sub = df_sub.dropna(subset=["Fecha_Hora_Raw", "Nombre"])
 
       # 3. PARSEO EXACTO SIN CAMBIOS DE ZONA HORARIA
-      # Parseamos con el formato nativo "DD/MM/YYYY HH:MM:SS" sin convertir zonas horarias
       df_sub["Fecha_Hora"] = pd.to_datetime(
           df_sub["Fecha_Hora_Raw"].astype(str).str.strip(),
           format="%d/%m/%Y %H:%M:%S",
@@ -136,11 +139,18 @@ class AppLimpiador(ctk.CTk):
           .reset_index()
       )
 
-      # Reordenar columnas
+      # Reordenar y renombrar columnas ANTES de registrar en la BD
       df_resumen.rename(columns={"Fecha_Texto": "Fecha"}, inplace=True)
       df_resumen = df_resumen[["Nombre", "Fecha", "Entrada", "Salida"]]
 
-      # 5. Solicitar ubicación de guardado
+      # 5. PERSISTENCIA: Guardar automáticamente los datos extraídos en SQLite
+      try:
+        guardar_ponchadas_desde_df(df_resumen)
+        print("Ponchadas guardadas con éxito en SQLite.")
+      except Exception as e:
+        print(f"Error al guardar en BD: {e}")
+
+      # 6. Solicitar ubicación de guardado
       nombre_base = os.path.splitext(os.path.basename(self.ruta_archivo))[0]
       ruta_salida = filedialog.asksaveasfilename(
           title="Guardar Excel Formateado como...",
@@ -152,7 +162,7 @@ class AppLimpiador(ctk.CTk):
       if not ruta_salida:
         return
 
-      # 6. EXPORTAR A EXCEL Y APLICAR ESTILOS
+      # 7. EXPORTAR A EXCEL Y APLICAR ESTILOS
       with pd.ExcelWriter(ruta_salida, engine="openpyxl") as writer:
         df_resumen.to_excel(
             writer, sheet_name="Asistencia", index=False, startrow=3
@@ -259,13 +269,3 @@ class AppLimpiador(ctk.CTk):
 if __name__ == "__main__":
   app = AppLimpiador()
   app.mainloop()
-
-
-
-  #jojo
-
-  #mario por favor :c
-
-  #cesar mi stand es gay ayuda
-
-  #victorinox
