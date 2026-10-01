@@ -1,3 +1,4 @@
+# frontend/app.py
 import customtkinter as ctk
 from frontend.views.vista_ponchadas import VistaPonchadas
 from frontend.views.vista_horarios import VistaHorarios
@@ -20,15 +21,18 @@ class AppLimpiador(ctk.CTk):
 
         # Crear las dos pestañas
         self.tab_csv = self.tabview.add("📁 Procesador CSV")
-        self.tab_horarios = self.tabview.add("📅 Gestor de Horarios PA")
-
-        # Cargar Vista 1: Procesador CSV
-        self.vista_csv = VistaPonchadas(self.tab_csv)
-        self.vista_csv.pack(fill="both", expand=True)
+        self.tab_horarios = self.tabview.add("📅 Asignación de Turnos")
 
         # Cargar Vista 2: Gestor de Horarios
         self.vista_horarios = VistaHorarios(self.tab_horarios)
         self.vista_horarios.pack(fill="both", expand=True)
+
+        # Cargar Vista 1: Procesador CSV (pasándole la función de refresco)
+        self.vista_csv = VistaPonchadas(
+            self.tab_csv, 
+            on_procesar_exito=self.vista_horarios.actualizar_datos
+        )
+        self.vista_csv.pack(fill="both", expand=True)
 
 
 if __name__ == "__main__":

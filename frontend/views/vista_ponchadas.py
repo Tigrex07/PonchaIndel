@@ -12,9 +12,10 @@ from database.modelos import guardar_ponchadas_desde_df
 
 
 class VistaPonchadas(ctk.CTkFrame):
-    def __init__(self, parent):
+    def __init__(self, parent, on_procesar_exito=None):
         super().__init__(parent)
 
+        self.on_procesar_exito = on_procesar_exito
         self.ruta_archivo = None
 
         self.label_titulo = ctk.CTkLabel(
@@ -139,6 +140,9 @@ class VistaPonchadas(ctk.CTkFrame):
             try:
                 guardar_ponchadas_desde_df(df_resumen)
                 print("Ponchadas guardadas con éxito en SQLite.")
+                # REFRESCAR LA VISTA DE HORARIOS SI HAY CALLBACK DEFINIDO
+                if self.on_procesar_exito:
+                    self.on_procesar_exito()
             except Exception as e:
                 print(f"Error al guardar en BD: {e}")
 
