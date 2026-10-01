@@ -173,3 +173,53 @@ def guardar_ponchadas_desde_df(df_resumen):
     conn.commit()
     conn.close()
     print(f"Sincronización con SQLite exitosa. Nuevos maestros agregados: {maestros_guardados}")
+
+
+# ==========================================
+# GESTIÓN DE USUARIOS Y AUTENTICACIÓN
+# ==========================================
+
+def verificar_credenciales(correo, clave):
+    """
+    Valida el correo y la clave del usuario para iniciar sesión.
+    Devuelve los datos del usuario si es correcto, o None si falla.
+    """
+    conn = obtener_conexion()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT id, nombre, correo, rol 
+        FROM usuarios 
+        WHERE LOWER(correo) = LOWER(?) AND clave = ? AND activo = 1
+    """, (correo.strip(), clave.strip()))
+    usuario = cursor.fetchone()
+    conn.close()
+    return usuario # Devuelve (id, nombre, correo, rol)
+
+def crear_usuario(nombre, correo, clave, rol='OPERADOR'):
+    """
+    Crea un nuevo usuario en la base de datos.
+    """
+    conn = obtener_conexion()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            INSERT INTO usuarios (nombre, correo, clave, rol)
+            VALUES (?, ?, ?, ?)
+        """, (nombre.strip(), correo.strip(), clave.strip(), rol))
+        conn.commit()
+        id_usuario = cursor.lastrowid
+    except Exception as e:
+        id_usuario = None
+        print(f"Error al crear usuario: {e}")
+    finally:
+        conn.close()
+    return id_usuario
+
+def obtener_usuarios():
+    """Devuelve la lista de todos los usuarios registrados."""
+    conn = obtener_conexion()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, nombre, correo, rol, activo FROM usuarios ORDER BY nombre ASC")
+    usuarios = cursor.fetchall()
+    conn.close()
+    return usuarios

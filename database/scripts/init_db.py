@@ -67,6 +67,26 @@ def inicializar_bd():
     );
     """)
 
+    # 6. Tabla Usuarios (Autenticación y Roles)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS usuarios (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        nombre TEXT NOT NULL,
+        correo TEXT UNIQUE NOT NULL,
+        clave TEXT NOT NULL, -- Guardará el hash encriptado de la contraseña
+        rol TEXT CHECK(rol IN ('ADMIN', 'OPERADOR')) NOT NULL DEFAULT 'OPERADOR',
+        activo INTEGER DEFAULT 1
+    );
+    """)
+
+
+    # Insertar un usuario Administrador por defecto si no existe
+    # Contraseña temporal por defecto: admin123 (Se recomienda implementar hashing con hashlib o bcrypt)
+    cursor.execute("""
+        INSERT OR IGNORE INTO usuarios (id, nombre, correo, clave, rol)
+        VALUES (1, 'Tigrex Team', 'admin@ponchaindel.com', '1234', 'ADMIN');
+    """)
+
     conn.commit()
     conn.close()
     print("Base de datos SQLite actualizada e inicializada con éxito con la nueva revisión.")
