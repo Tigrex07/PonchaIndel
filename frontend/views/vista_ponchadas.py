@@ -10,6 +10,8 @@ from openpyxl.utils import get_column_letter
 
 from database.modelos import guardar_ponchadas_desde_df
 
+from backend.gestor_plantillas import GestorPlantillas
+
 
 class VistaPonchadas(ctk.CTkFrame):
     def __init__(self, parent, on_procesar_exito=None):
