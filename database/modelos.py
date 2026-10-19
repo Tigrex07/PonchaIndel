@@ -1,4 +1,3 @@
-# database/modelos.py
 import pandas as pd
 from database.conexion import obtener_conexion
 
@@ -7,18 +6,12 @@ from database.conexion import obtener_conexion
 # ==========================================
 
 def crear_o_actualizar_maestro(nombre, tipo='NORMAL', activo=1):
-    """
-    Inserta un nuevo maestro si no existe o devuelve su ID actual.
-    Limpia los espacios en blanco del nombre.
-    """
     nombre_limpio = str(nombre).strip()
-    if not nombre_limpio or nombre_limpio == 'nan':
+    if not nombre_limpio or nombre_limpio in ('nan', 'None', ''):
         return None
 
     conn = obtener_conexion()
     cursor = conn.cursor()
-    
-    # Buscar si existe independientemente de mayúsculas/minúsculas
     cursor.execute("SELECT id FROM maestros WHERE UPPER(nombre) = UPPER(?)", (nombre_limpio,))
     res = cursor.fetchone()
     
@@ -35,9 +28,7 @@ def crear_o_actualizar_maestro(nombre, tipo='NORMAL', activo=1):
     conn.close()
     return id_maestro
 
-
 def obtener_maestros():
-    """Devuelve la lista de todos los maestros registrados."""
     conn = obtener_conexion()
     cursor = conn.cursor()
     cursor.execute("SELECT id, nombre, tipo, activo FROM maestros ORDER BY nombre ASC")
@@ -50,7 +41,6 @@ def obtener_maestros():
 # ==========================================
 
 def crear_periodo(nombre, fecha_inicio, fecha_final):
-    """Crea un nuevo cuatrimestre/periodo lectivo."""
     conn = obtener_conexion()
     cursor = conn.cursor()
     cursor.execute("""
@@ -62,9 +52,7 @@ def crear_periodo(nombre, fecha_inicio, fecha_final):
     conn.close()
     return id_periodo
 
-
 def obtener_periodos():
-    """Devuelve la lista de todos los periodos registrados."""
     conn = obtener_conexion()
     cursor = conn.cursor()
     cursor.execute("SELECT id, nombre, fechaInicio, fechaFinal FROM periodo ORDER BY id DESC")
@@ -77,7 +65,6 @@ def obtener_periodos():
 # ==========================================
 
 def obtener_turnos():
-    """Devuelve el catálogo de turnos disponibles."""
     conn = obtener_conexion()
     cursor = conn.cursor()
     cursor.execute("SELECT id, nombre, horaEntrada, horaSalida, diassemana FROM turno ORDER BY id ASC")
@@ -90,10 +77,6 @@ def obtener_turnos():
 # ==========================================
 
 def asignar_horario_maestro(id_maestro, id_periodo, id_turno):
-    """
-    Asigna un turno a un maestro en un periodo específico.
-    Si ya existe la relación, actualiza el turno asignado.
-    """
     conn = obtener_conexion()
     cursor = conn.cursor()
     cursor.execute("""
@@ -106,9 +89,7 @@ def asignar_horario_maestro(id_maestro, id_periodo, id_turno):
     conn.close()
     return id_horario
 
-
 def obtener_horario_maestro(id_maestro, id_periodo):
-    """Obtiene el turno asignado a un maestro en un periodo determinado."""
     conn = obtener_conexion()
     cursor = conn.cursor()
     cursor.execute("""
@@ -122,17 +103,12 @@ def obtener_horario_maestro(id_maestro, id_periodo):
     return horario
 
 # ==========================================
-# PERSISTENCIA DE PONCHADAS
+# PERSISTENCIA DE PONCHADAS (ESCUDO ANTI-DUPLICADOS ABSOLUTO)
 # ==========================================
 
 def guardar_ponchadas_desde_df(df_resumen):
-    """
-    Guarda todos los maestros y sus marcajes procesados desde el DataFrame.
-    Procesa todas las filas en una sola transacción segura para evitar datos incompletos.
-    """
     conn = obtener_conexion()
     cursor = conn.cursor()
-
     maestros_guardados = 0
 
     for _, row in df_resumen.iterrows():
@@ -141,10 +117,10 @@ def guardar_ponchadas_desde_df(df_resumen):
         entrada = str(row['Entrada']).strip() if pd.notna(row['Entrada']) else None
         salida = str(row['Salida']).strip() if pd.notna(row['Salida']) else None
 
-        if not nombre or nombre == 'nan':
+        if not nombre or nombre in ('nan', 'None', ''):
             continue
 
-        # 1. Registrar o recuperar id del maestro usando la misma transacción
+        # 1. Recuperar o registrar al maestro
         cursor.execute("SELECT id FROM maestros WHERE UPPER(nombre) = UPPER(?)", (nombre,))
         res = cursor.fetchone()
 
@@ -155,35 +131,33 @@ def guardar_ponchadas_desde_df(df_resumen):
             id_maestro = cursor.lastrowid
             maestros_guardados += 1
 
-        # 2. Registrar marcaje de Entrada
-        if entrada and entrada != 'nan':
+        # 2. LIMPIEZA INMEDIATA: Borramos CUALQUIER registro viejo de este maestro en este día.
+        # Esto garantiza que jamás habrá basura acumulada si se sube el archivo 2 veces.
+        cursor.execute("DELETE FROM ponchadas WHERE idMaestro = ? AND fecha = ?", (id_maestro, fecha))
+
+        # 3. Registrar únicamente la entrada válida
+        if entrada and entrada not in ('nan', 'None', 'NaT'):
             cursor.execute("""
                 INSERT INTO ponchadas (idMaestro, fecha, hora, tipo)
                 VALUES (?, ?, ?, 'ENTRADA')
             """, (id_maestro, fecha, entrada))
 
-        # 3. Registrar marcaje de Salida
-        if salida and salida != 'nan' and salida != entrada:
+        # 4. Registrar únicamente la salida válida
+        if salida and salida not in ('nan', 'None', 'NaT') and salida != entrada:
             cursor.execute("""
                 INSERT INTO ponchadas (idMaestro, fecha, hora, tipo)
                 VALUES (?, ?, ?, 'SALIDA')
             """, (id_maestro, fecha, salida))
 
-    # Guardar cambios y cerrar conexión
     conn.commit()
     conn.close()
-    print(f"Sincronización con SQLite exitosa. Nuevos maestros agregados: {maestros_guardados}")
-
+    print(f"Sincronización exitosa. Nuevos maestros: {maestros_guardados}")
 
 # ==========================================
 # GESTIÓN DE USUARIOS Y AUTENTICACIÓN
 # ==========================================
 
 def verificar_credenciales(correo, clave):
-    """
-    Valida el correo y la clave del usuario para iniciar sesión.
-    Devuelve los datos del usuario si es correcto, o None si falla.
-    """
     conn = obtener_conexion()
     cursor = conn.cursor()
     cursor.execute("""
@@ -193,12 +167,9 @@ def verificar_credenciales(correo, clave):
     """, (correo.strip(), clave.strip()))
     usuario = cursor.fetchone()
     conn.close()
-    return usuario # Devuelve (id, nombre, correo, rol)
+    return usuario
 
 def crear_usuario(nombre, correo, clave, rol='OPERADOR'):
-    """
-    Crea un nuevo usuario en la base de datos.
-    """
     conn = obtener_conexion()
     cursor = conn.cursor()
     try:
@@ -216,7 +187,6 @@ def crear_usuario(nombre, correo, clave, rol='OPERADOR'):
     return id_usuario
 
 def obtener_usuarios():
-    """Devuelve la lista de todos los usuarios registrados."""
     conn = obtener_conexion()
     cursor = conn.cursor()
     cursor.execute("SELECT id, nombre, correo, rol, activo FROM usuarios ORDER BY nombre ASC")
