@@ -7,7 +7,7 @@ from database.conexion import obtener_conexion
 
 def crear_o_actualizar_maestro(nombre, tipo='NORMAL', activo=1):
     nombre_limpio = str(nombre).strip()
-    if not nombre_limpio or nombre_limpio in ('nan', 'None', ''):
+    if not nombre_limpio or nombre_limpio == 'nan':
         return None
 
     conn = obtener_conexion()
@@ -103,7 +103,7 @@ def obtener_horario_maestro(id_maestro, id_periodo):
     return horario
 
 # ==========================================
-# PERSISTENCIA DE PONCHADAS (ESCUDO ANTI-DUPLICADOS ABSOLUTO)
+# PERSISTENCIA DE PONCHADAS (FILTRO ANTI-BASURA AÑADIDO)
 # ==========================================
 
 def guardar_ponchadas_desde_df(df_resumen):
@@ -117,10 +117,10 @@ def guardar_ponchadas_desde_df(df_resumen):
         entrada = str(row['Entrada']).strip() if pd.notna(row['Entrada']) else None
         salida = str(row['Salida']).strip() if pd.notna(row['Salida']) else None
 
-        if not nombre or nombre in ('nan', 'None', ''):
+        if not nombre or nombre == 'nan':
             continue
 
-        # 1. Recuperar o registrar al maestro
+        # 1. Registrar o recuperar id del maestro
         cursor.execute("SELECT id FROM maestros WHERE UPPER(nombre) = UPPER(?)", (nombre,))
         res = cursor.fetchone()
 
@@ -131,23 +131,23 @@ def guardar_ponchadas_desde_df(df_resumen):
             id_maestro = cursor.lastrowid
             maestros_guardados += 1
 
-        # 2. LIMPIEZA INMEDIATA: Borramos CUALQUIER registro viejo de este maestro en este día.
-        # Esto garantiza que jamás habrá basura acumulada si se sube el archivo 2 veces.
-        cursor.execute("DELETE FROM ponchadas WHERE idMaestro = ? AND fecha = ?", (id_maestro, fecha))
+        # 2. Registrar marcaje de Entrada (SOLO SI NO EXISTE)
+        if entrada and entrada != 'nan':
+            cursor.execute("SELECT id FROM ponchadas WHERE idMaestro = ? AND fecha = ? AND tipo = 'ENTRADA'", (id_maestro, fecha))
+            if not cursor.fetchone():
+                cursor.execute("""
+                    INSERT INTO ponchadas (idMaestro, fecha, hora, tipo)
+                    VALUES (?, ?, ?, 'ENTRADA')
+                """, (id_maestro, fecha, entrada))
 
-        # 3. Registrar únicamente la entrada válida
-        if entrada and entrada not in ('nan', 'None', 'NaT'):
-            cursor.execute("""
-                INSERT INTO ponchadas (idMaestro, fecha, hora, tipo)
-                VALUES (?, ?, ?, 'ENTRADA')
-            """, (id_maestro, fecha, entrada))
-
-        # 4. Registrar únicamente la salida válida
-        if salida and salida not in ('nan', 'None', 'NaT') and salida != entrada:
-            cursor.execute("""
-                INSERT INTO ponchadas (idMaestro, fecha, hora, tipo)
-                VALUES (?, ?, ?, 'SALIDA')
-            """, (id_maestro, fecha, salida))
+        # 3. Registrar marcaje de Salida (SOLO SI NO EXISTE)
+        if salida and salida != 'nan' and salida != entrada:
+            cursor.execute("SELECT id FROM ponchadas WHERE idMaestro = ? AND fecha = ? AND tipo = 'SALIDA'", (id_maestro, fecha))
+            if not cursor.fetchone():
+                cursor.execute("""
+                    INSERT INTO ponchadas (idMaestro, fecha, hora, tipo)
+                    VALUES (?, ?, ?, 'SALIDA')
+                """, (id_maestro, fecha, salida))
 
     conn.commit()
     conn.close()
@@ -193,3 +193,33 @@ def obtener_usuarios():
     usuarios = cursor.fetchall()
     conn.close()
     return usuarios
+
+# ==========================================
+# FUNCIONES NUEVAS AGREGADAS (NECESARIAS PARA HORARIOS Y EXCEL)
+# ==========================================
+
+def crear_turno(nombre, hora_entrada, hora_salida, diassemana="LUN, MAR, MIE, JUE, VIE"):
+    conn = obtener_conexion()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO turno (nombre, horaEntrada, horaSalida, diassemana)
+        VALUES (?, ?, ?, ?)
+    """, (nombre.upper(), hora_entrada, hora_salida, diassemana))
+    conn.commit()
+    conn.close()
+
+def obtener_horario_activo_maestro(nombre_maestro):
+    """Obtiene el último turno asignado a un maestro para calcular sus retardos dinámicos en el Excel."""
+    conn = obtener_conexion()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT t.horaEntrada, t.horaSalida
+        FROM horarios h
+        JOIN maestros m ON h.idmaestro = m.id
+        JOIN turno t ON h.idturno = t.id
+        WHERE UPPER(m.nombre) = UPPER(?)
+        ORDER BY h.id DESC LIMIT 1
+    """, (nombre_maestro,))
+    res = cursor.fetchone()
+    conn.close()
+    return res
