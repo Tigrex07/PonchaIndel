@@ -7,7 +7,7 @@ from openpyxl.drawing.image import Image
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
-from database.modelos import obtener_horario_activo_maestro
+from database.modelos import obtener_horario_maestro_por_fecha
 
 class GeneradorExcelProgramatico:
 
@@ -138,22 +138,6 @@ class GeneradorExcelProgramatico:
       df_docente = df_registros[df_registros["Nombre"] == nombre_docente]
       minutos_totales_trabajados = 0
 
-      # Tolerancia calculada a la medida del maestro
-      horario_asignado = obtener_horario_activo_maestro(nombre_docente)
-      if horario_asignado and horario_asignado[0]:
-          hora_oficial_str = str(horario_asignado[0]).strip()
-      else:
-          hora_oficial_str = "08:00:00"
-      
-      # FILTRO ANTI-ERROR: Si la hora oficial no tiene segundos, se los agregamos
-      if len(hora_oficial_str.split(':')) == 2:
-          hora_oficial_str += ":00"
-          
-      t_oficial = datetime.strptime(hora_oficial_str, "%H:%M:%S").time()
-      dt_oficial = datetime.combine(datetime.today(), t_oficial)
-      dt_tolerancia = dt_oficial + timedelta(minutes=10)
-      t_tolerancia = dt_tolerancia.time()
-
       for idx_d, dt_dia in enumerate(dias_quincena):
         col_e = 2 + (idx_d * 2)
         col_s = 3 + (idx_d * 2)
@@ -169,6 +153,24 @@ class GeneradorExcelProgramatico:
         cell_s.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
         cell_s.font = font_contenido
 
+        # --- OBTENER HORARIO DINÁMICO POR FECHA Y CUATRIMESTRE ---
+        fecha_dia_str = dt_dia.strftime("%Y-%m-%d")
+        horario_asignado = obtener_horario_maestro_por_fecha(nombre_docente, fecha_dia_str)
+        
+        if horario_asignado and horario_asignado[0]:
+            hora_oficial_str = str(horario_asignado[0]).strip()
+        else:
+            hora_oficial_str = "08:00:00"
+
+        if len(hora_oficial_str.split(':')) == 2:
+            hora_oficial_str += ":00"
+
+        t_oficial = datetime.strptime(hora_oficial_str, "%H:%M:%S").time()
+        dt_oficial = datetime.combine(datetime.today(), t_oficial)
+        dt_tolerancia = dt_oficial + timedelta(minutes=10)
+        t_tolerancia = dt_tolerancia.time()
+        # --------------------------------------------------------
+
         sub_dia = df_docente[df_docente["fecha"].apply(lambda x: self._es_mismo_dia(x, dt_dia))]
         entradas = sub_dia[sub_dia["tipo"] == "ENTRADA"]["hora"].values
         salidas = sub_dia[sub_dia["tipo"] == "SALIDA"]["hora"].values
@@ -180,7 +182,6 @@ class GeneradorExcelProgramatico:
         if len(entradas) > 0:
           h_entrada_str = str(entradas[0]).strip()
           
-          # FILTRO ANTI-ERROR: Si la entrada no tiene segundos, se los agregamos
           if len(h_entrada_str.split(':')) == 2:
               h_entrada_str += ":00"
               
@@ -189,7 +190,6 @@ class GeneradorExcelProgramatico:
             if t_ing > t_tolerancia:
               dt_ing_val = datetime.combine(datetime.today(), t_ing)
               min_ret_dia = int((dt_ing_val - dt_tolerancia).total_seconds() / 60)
-              # Mostramos la hora original (hasta los minutos) para que se vea limpio
               cell_e.value = f"{h_entrada_str[:5]}\n({min_ret_dia} min Ret)"
               cell_e.font = font_alerta
             else:
@@ -206,7 +206,6 @@ class GeneradorExcelProgramatico:
         if len(salidas) > 0:
           h_salida_str = str(salidas[0]).strip()
           
-          # FILTRO ANTI-ERROR: Si la salida no tiene segundos, se los agregamos
           if len(h_salida_str.split(':')) == 2:
               h_salida_str += ":00"
               

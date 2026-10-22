@@ -168,10 +168,10 @@ class VistaPonchadas(ctk.CTkFrame):
             self.lbl_stat_filas.configure(text=str(len(df_resumen)))
             self.lbl_stat_docentes.configure(text=str(df_resumen["Nombre"].nunique()))
 
-            # Guardar en Base de Datos
+            # Guardar en Base de Datos (Esto crea automáticamente los cuatrimestres y guarda maestros/ponchadas)
             guardar_ponchadas_desde_df(df_resumen)
             
-            # --- LÓGICA DE EXCEL LIMPIO REINCORPORADA ---
+            # --- EXCEL LIMPIO ---
             nombre_base = os.path.splitext(os.path.basename(self.ruta_archivo))[0]
             ruta_salida = filedialog.asksaveasfilename(
                 title="Guardar Excel Formateado como...",
@@ -234,13 +234,12 @@ class VistaPonchadas(ctk.CTkFrame):
                             val_str = str(cell.value or "")
                             if len(val_str) > max_len: max_len = len(val_str)
                         ws.column_dimensions[col_letter].width = max(max_len + 5, 14)
-            # --------------------------------------------
 
             self.lbl_status_footer.configure(text="🟢 ¡Sincronización y Excel Creado!", text_color=COLORES["exito"])
             self.label_estado.configure(text="Todo guardado correctamente.", text_color=COLORES["exito"])
             self.card_container.configure(border_color=COLORES["exito"], border_width=2)
             
             if self.on_procesar_exito: self.on_procesar_exito()
-            messagebox.showinfo("Éxito", "Los datos fueron procesados, guardados en la BD y exportados a Excel limpio.")
+            messagebox.showinfo("Éxito", "Los datos fueron procesados, guardados en la BD y el cuatrimestre se sincronizó automáticamente.")
         except Exception as e:
             messagebox.showerror("Error", f"Fallo al procesar:\n{str(e)}")

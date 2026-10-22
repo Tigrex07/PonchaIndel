@@ -13,6 +13,8 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
 import pandas as pd
 
+from database.modelos import obtener_horario_maestro_por_fecha
+
 
 class GeneradorPDFPaginado:
     def __init__(self):
@@ -27,7 +29,6 @@ class GeneradorPDFPaginado:
         df_registros,
         ruta_salida,
     ):
-        # CAMBIO CLAVE: Usar tamaño OFICIO (Legal) en Horizontal para ganar 30% más de ancho real
         doc = SimpleDocTemplate(
             ruta_salida,
             pagesize=landscape(legal),
@@ -48,7 +49,6 @@ class GeneradorPDFPaginado:
             textColor=colors.HexColor('#1F2937')
         )
 
-        # Tipografía optimizada y ultra compacta (5.5pt) para perfecta lectura en celdas de días
         estilo_celda = ParagraphStyle(
             'CeldaTabla',
             parent=styles['Normal'],
@@ -109,7 +109,6 @@ class GeneradorPDFPaginado:
 
         elementos = []
         
-        # Bloques eficientes de 16 docentes por página en tamaño Oficio
         TAMANO_BLOQUE = 16
         bloques_maestros = [
             maestros_unicos[i:i + TAMANO_BLOQUE] 
@@ -124,7 +123,6 @@ class GeneradorPDFPaginado:
         total_paginas = len(bloques_maestros)
 
         for num_pag, grupo_docentes in enumerate(bloques_maestros, 1):
-            # 1. Cabecera con Logotipos
             img_l = RLImage(ruta_logo_utn, width=75, height=32) if os.path.exists(ruta_logo_utn) else Paragraph("", styles['Normal'])
             img_r = RLImage(ruta_logo_iqs, width=32, height=32) if os.path.exists(ruta_logo_iqs) else Paragraph("", styles['Normal'])
 
@@ -135,7 +133,6 @@ class GeneradorPDFPaginado:
                 estilo_titulo
             )
 
-            # Ancho total de Oficio Landscape = 1008 pt. Márgenes de 15 izq/der = 978 pt útiles.
             tabla_header = Table([[img_l, header_texto, img_r]], colWidths=[90, 798, 90])
             tabla_header.setStyle(TableStyle([
                 ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
@@ -145,7 +142,6 @@ class GeneradorPDFPaginado:
             elementos.append(tabla_header)
             elementos.append(Spacer(1, 5))
 
-            # 2. Construcción de la Tabla de Asistencia
             fila_dias = ["NOMBRE"]
             for d in dias_quincena:
                 fila_dias.extend([str(d.day), ""])
@@ -180,17 +176,35 @@ class GeneradorPDFPaginado:
                     t_ing, t_sal = None, None
                     val_e, val_s = "", ""
 
+                    # --- OBTENER HORARIO DINÁMICO POR FECHA Y CUATRIMESTRE ---
+                    fecha_dia_str = dt_dia.strftime("%Y-%m-%d")
+                    horario_asignado = obtener_horario_maestro_por_fecha(nombre_docente, fecha_dia_str)
+                    
+                    if horario_asignado and horario_asignado[0]:
+                        hora_oficial_str = str(horario_asignado[0]).strip()
+                    else:
+                        hora_oficial_str = "08:00:00"
+
+                    if len(hora_oficial_str.split(':')) == 2:
+                        hora_oficial_str += ":00"
+
+                    t_oficial = datetime.strptime(hora_oficial_str, "%H:%M:%S").time()
+                    dt_oficial = datetime.combine(datetime.today(), t_oficial)
+                    dt_tolerancia = dt_oficial + timedelta(minutes=10)
+                    t_tol = dt_tolerancia.time()
+                    # --------------------------------------------------------
+
                     if len(entradas) > 0:
                         h_ent_raw = str(entradas[0])
+                        if len(h_ent_raw.split(':')) == 2:
+                            h_ent_raw += ":00"
                         try:
                             t_ing = datetime.strptime(h_ent_raw, "%H:%M:%S").time()
                             h_ent = t_ing.strftime("%H:%M")
-                            t_tol = time(8, 10, 0)
                             if t_ing > t_tol:
                                 dt_tol = datetime.combine(datetime.today(), t_tol)
                                 dt_ing_val = datetime.combine(datetime.today(), t_ing)
                                 min_ret = int((dt_ing_val - dt_tol).total_seconds() / 60)
-                                # Formato en línea ultra limpio para evitar saltos extraños
                                 val_e = f"{h_ent} <font color='#990000'><b>(+{min_ret}m)</b></font>"
                             else:
                                 val_e = h_ent
@@ -201,6 +215,8 @@ class GeneradorPDFPaginado:
 
                     if len(salidas) > 0:
                         h_sal_raw = str(salidas[0])
+                        if len(h_sal_raw.split(':')) == 2:
+                            h_sal_raw += ":00"
                         try:
                             t_sal = datetime.strptime(h_sal_raw, "%H:%M:%S").time()
                             val_s = t_sal.strftime("%H:%M")
@@ -213,6 +229,8 @@ class GeneradorPDFPaginado:
                     if t_ing and t_sal:
                         dt_i = datetime.combine(datetime.today(), t_ing)
                         dt_s = datetime.combine(datetime.today(), t_sal)
+                        if dt_s < dt_i:
+                            dt_s += timedelta(days=1)
                         diff = (dt_s - dt_i).total_seconds()
                         if diff > 0:
                             minutos_totales_trabajados += int(diff / 60)
@@ -228,7 +246,6 @@ class GeneradorPDFPaginado:
                 fila_doc.append(Paragraph(f"<b>{hrs}h {mins}m</b>", estilo_celda))
                 tabla_datos.append(fila_doc)
 
-            # Cálculo exacto de anchos para Oficio Landscape (978 pt útiles)
             ancho_nombre = 110
             ancho_total = 48
             ancho_disponible = 978 - ancho_nombre - ancho_total
@@ -251,7 +268,6 @@ class GeneradorPDFPaginado:
             elementos.append(t)
             elementos.append(Spacer(1, 4))
 
-            # 3. Leyendas, Notas y Simbología obligatorias en TODAS las hojas
             texto_simb_str = (
                 "<b>FI</b> = Falta Injustificada &nbsp;|&nbsp; "
                 "<b>FIS</b> = Falta, Salida No Registrada &nbsp;|&nbsp; "

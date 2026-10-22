@@ -27,6 +27,15 @@ class VistaHorarios(ctk.CTkFrame):
             font=ctk.CTkFont(size=26, weight="bold"), text_color=COLORES["texto_principal"]
         ).pack(side="left")
 
+        # Botón añadido para abrir la gestión de maestros en el cuatrimestre seleccionado
+        self.btn_gestionar_cuatri = ctk.CTkButton(
+            header_frame, text="👥 Gestionar Cuatrimestre", 
+            font=ctk.CTkFont(size=12, weight="bold"), fg_color=COLORES["primario"],
+            hover_color=COLORES["primario_hover"], height=35, corner_radius=8,
+            command=self.abrir_modal_gestion_cuatrimestre
+        )
+        self.btn_gestionar_cuatri.pack(side="right")
+
         main_frame = ctk.CTkFrame(self, fg_color="transparent")
         main_frame.pack(fill="both", expand=True, padx=20, pady=5)
 
@@ -167,7 +176,8 @@ class VistaHorarios(ctk.CTkFrame):
         if periodos:
             self.periodos_dict = {p[1]: p[0] for p in periodos}
             self.combo_periodo.configure(values=list(self.periodos_dict.keys()))
-            if not self.combo_periodo.get() or self.combo_periodo.get() not in self.periodos_dict: self.combo_periodo.set(list(self.periodos_dict.keys())[0])
+            if not self.combo_periodo.get() or self.combo_periodo.get() not in self.periodos_dict: 
+                self.combo_periodo.set(list(self.periodos_dict.keys())[0])
         self.refrescar_combo_turnos()
         self.refrescar_lista_maestros()
 
@@ -221,6 +231,91 @@ class VistaHorarios(ctk.CTkFrame):
             modal.destroy()
 
         ctk.CTkButton(modal, text="Guardar Turno", height=45, corner_radius=10, fg_color=COLORES["primario"], command=guardar_nuevo_turno).pack(fill="x", padx=30, pady=25)
+
+    def abrir_modal_gestion_cuatrimestre(self):
+        """Ventana modal para matricular o dar de alta maestros en el cuatrimestre seleccionado."""
+        periodo_actual_nombre = self.combo_periodo.get()
+        if periodo_actual_nombre not in self.periodos_dict:
+            return messagebox.showwarning("Atención", "Selecciona un cuatrimestre válido primero.")
+        
+        id_periodo = self.periodos_dict[periodo_actual_nombre]
+
+        modal = ctk.CTkToplevel(self)
+        modal.title(f"Gestión de Docentes - {periodo_actual_nombre}")
+        modal.geometry("550x600")
+        modal.configure(fg_color=COLORES["fondo_principal"])
+        modal.transient(self.winfo_toplevel())
+        modal.grab_set()
+
+        ctk.CTkLabel(
+            modal, text=f"👥 Asignar Docentes al Cuatrimestre", 
+            font=ctk.CTkFont(size=20, weight="bold"), text_color=COLORES["texto_principal"]
+        ).pack(pady=(20, 5))
+        
+        ctk.CTkLabel(
+            modal, text=f"Periodo: {periodo_actual_nombre}", 
+            font=ctk.CTkFont(size=13), text_color=COLORES["texto_secundario"]
+        ).pack(pady=(0, 10))
+
+        e_buscar_modal = ctk.CTkEntry(modal, placeholder_text="🔎 Buscar maestro...", height=35)
+        e_buscar_modal.pack(fill="x", padx=25, pady=5)
+
+        scroll_modal = ctk.CTkScrollableFrame(modal, fg_color=COLORES["panel_secundario"], corner_radius=10, height=350)
+        scroll_modal.pack(fill="both", expand=True, padx=25, pady=10)
+
+        checks_maestros = {}
+
+        def cargar_lista_modal(filtro=""):
+            for w in scroll_modal.winfo_children(): w.destroy()
+            checks_maestros.clear()
+
+            todos_maestros = obtener_maestros()
+            for m in todos_maestros:
+                id_m, nombre_m = m[0], m[1]
+                if filtro and filtro.lower() not in nombre_m.lower():
+                    continue
+                
+                horario_existente = obtener_horario_maestro(id_m, id_periodo)
+                tiene_horario = horario_existente is not None
+
+                var = ctk.BooleanVar(value=tiene_horario)
+                
+                row = ctk.CTkFrame(scroll_modal, fg_color="transparent")
+                row.pack(fill="x", pady=4, padx=5)
+
+                chk = ctk.CTkCheckBox(row, text=nombre_m, variable=var, font=ctk.CTkFont(size=12))
+                chk.pack(side="left", padx=5)
+
+                if tiene_horario:
+                    ctk.CTkLabel(row, text="Turno asignado", text_color=COLORES["exito"], font=ctk.CTkFont(size=10, weight="bold")).pack(side="right", padx=5)
+
+                checks_maestros[id_m] = var
+
+        e_buscar_modal.bind("<KeyRelease>", lambda e: cargar_lista_modal(e_buscar_modal.get().strip()))
+        cargar_lista_modal()
+
+        def guardar_asignaciones_masivas_modal():
+            turnos = obtener_turnos()
+            if not turnos:
+                return messagebox.showwarning("Atención", "Debes crear al menos un turno antes de asignar docentes.")
+            
+            id_turno_default = turnos[0][0]
+            contador = 0
+            
+            for id_m, var in checks_maestros.items():
+                if var.get():
+                    asignar_horario_maestro(id_m, id_periodo, id_turno_default)
+                    contador += 1
+
+            NotificacionToast(modal, f"¡Actualizado! {contador} docentes en el cuatrimestre.", "exito")
+            modal.destroy()
+            self.refrescar_lista_maestros()
+
+        ctk.CTkButton(
+            modal, text="💾 Guardar Cambios en el Cuatrimestre", height=45, corner_radius=10,
+            fg_color=COLORES["exito"], hover_color=COLORES["exito_hover"], font=ctk.CTkFont(size=13, weight="bold"),
+            command=guardar_asignaciones_masivas_modal
+        ).pack(fill="x", padx=25, pady=15)
 
     def actualizar_datos(self): self.cargar_datos_bd()
     def al_cambiar_periodo(self, _=None): self.refrescar_lista_maestros()
@@ -319,7 +414,6 @@ class VistaHorarios(ctk.CTkFrame):
             horario = obtener_horario_maestro(self.maestros_dict[nombre_m], self.periodos_dict[self.combo_periodo.get()])
             if horario:
                 t_nombre = horario[1].lower()
-                # Colores en Hexadecimal, no RGBA
                 if "matutino" in t_nombre:
                     color_bg = "#1E3A8A"
                     color_texto = "#93C5FD"
