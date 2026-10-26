@@ -157,18 +157,24 @@ class GeneradorExcelProgramatico:
         fecha_dia_str = dt_dia.strftime("%Y-%m-%d")
         horario_asignado = obtener_horario_maestro_por_fecha(nombre_docente, fecha_dia_str)
         
-        if horario_asignado and horario_asignado[0]:
+        if horario_asignado and horario_asignado[0] and horario_asignado[1]:
             hora_oficial_str = str(horario_asignado[0]).strip()
+            hora_oficial_salida_str = str(horario_asignado[1]).strip()
         else:
             hora_oficial_str = "08:00:00"
+            hora_oficial_salida_str = "16:00:00"
 
         if len(hora_oficial_str.split(':')) == 2:
             hora_oficial_str += ":00"
+        if len(hora_oficial_salida_str.split(':')) == 2:
+            hora_oficial_salida_str += ":00"
 
         t_oficial = datetime.strptime(hora_oficial_str, "%H:%M:%S").time()
         dt_oficial = datetime.combine(datetime.today(), t_oficial)
         dt_tolerancia = dt_oficial + timedelta(minutes=10)
         t_tolerancia = dt_tolerancia.time()
+        
+        t_oficial_sal = datetime.strptime(hora_oficial_salida_str, "%H:%M:%S").time()
         # --------------------------------------------------------
 
         sub_dia = df_docente[df_docente["fecha"].apply(lambda x: self._es_mismo_dia(x, dt_dia))]
@@ -190,17 +196,17 @@ class GeneradorExcelProgramatico:
             if t_ing > t_tolerancia:
               dt_ing_val = datetime.combine(datetime.today(), t_ing)
               min_ret_dia = int((dt_ing_val - dt_tolerancia).total_seconds() / 60)
-              cell_e.value = f"{h_entrada_str[:5]}\n({min_ret_dia} min Ret)"
+              cell_e.value = f"{h_entrada_str}\n(+{min_ret_dia}m Ret)"
               cell_e.font = font_alerta
             else:
-              cell_e.value = h_entrada_str[:5]
+              cell_e.value = h_entrada_str
           except ValueError:
             cell_e.value = h_entrada_str
         else:
           if es_fin_de_semana:
             cell_e.value = ""
           else:
-            cell_e.value = "FI"
+            cell_e.value = "FIE"
             cell_e.font = font_alerta
 
         if len(salidas) > 0:
@@ -209,13 +215,15 @@ class GeneradorExcelProgramatico:
           if len(h_salida_str.split(':')) == 2:
               h_salida_str += ":00"
               
-          cell_s.value = h_salida_str[:5]
           try:
             t_sal = datetime.strptime(h_salida_str, "%H:%M:%S").time()
-            if h_salida_str > "16:00:00":
-              cell_s.font = Font(name="Arial", size=9, underline="single")
+            if t_sal < t_oficial_sal:
+              cell_s.value = f"{h_salida_str}\n(ST)"
+              cell_s.font = font_alerta
+            else:
+              cell_s.value = h_salida_str
           except ValueError:
-            pass
+            cell_s.value = h_salida_str
         else:
           if len(entradas) > 0 and not es_fin_de_semana:
             cell_s.value = "FIS"
@@ -243,13 +251,12 @@ class GeneradorExcelProgramatico:
     ws.cell(row=f_notas, column=1, value="En este Control Quincenal aparecen las entradas registradas después del horario estipulado.").font = font_notas
     ws.cell(row=f_notas + 1, column=1, value="Se consideran 10 minutos de TOLERANCIA solo en el registro de las Entradas, según el Contrato Colectivo.").font = font_notas
     ws.cell(row=f_notas + 2, column=1, value="Después de los 10 minutos de TOLERANCIA se comenzarán a contar los minutos de Retardo del Personal.").font = font_notas
-    ws.cell(row=f_notas + 3, column=1, value="Horas Subrayadas: Salidas registradas después del horario estipulado.").font = font_notas
+    ws.cell(row=f_notas + 3, column=1, value="ST = Salida Temprana (Registrada antes del horario estipulado de salida).").font = font_notas
 
     f_simb = f_notas + 6
     simbologia_texto = (
-        "FI = Falta Injustificada    I = Incapacidad    AM = Atención Médica   "
-        " P = Permiso    C = Comisión    FIS = Falta, Salida No Registrada   "
-        " FIE = Falta, Entrada No Registrada    PS = Permiso Sin Goce de Sueldo"
+        "FI = Falta Injustificada    I = Incapacidad    AM = Atención Médica    P = Permiso    C = Comisión\n"
+        "FIS = Falta, Salida No Registrada    FIE = Falta, Entrada No Registrada    PS = Permiso Sin Goce    ST = Salida Temprana"
     )
     ws.cell(row=f_simb, column=1, value=simbologia_texto).font = font_simbologia
     ws.cell(row=f_simb + 4, column=1, value="F01PGRRH02.01").font = Font(name="Arial", size=9, bold=True)
