@@ -2,7 +2,7 @@ import customtkinter as ctk
 from tkinter import messagebox
 from database.modelos import (
     obtener_periodos, obtener_turnos, obtener_maestros, 
-    asignar_horario_maestro, obtener_horario_maestro, crear_turno
+    asignar_horario_maestro, obtener_horario_maestro, crear_turno, crear_periodo
 )
 from frontend.tema import COLORES
 from frontend.componentes.ui_dinamica import NotificacionToast
@@ -14,6 +14,7 @@ class VistaHorarios(ctk.CTkFrame):
         self.maestros_lista, self.checkboxes_vars = [], {}
         self.filtro_estado = "TODOS"
         self.maestro_seleccionado_individual = None
+        self.periodo_actual_nombre = ""
         
         self.crear_interfaz()
         self.cargar_datos_bd()
@@ -45,14 +46,33 @@ class VistaHorarios(ctk.CTkFrame):
 
         top_left = ctk.CTkFrame(left_frame, fg_color="transparent")
         top_left.pack(fill="x", padx=15, pady=(15, 5))
-        ctk.CTkLabel(top_left, text="🎓 Periodo:", font=ctk.CTkFont(size=13, weight="bold"), text_color=COLORES["texto_secundario"]).pack(side="left", padx=(0, 10))
         
-        self.combo_periodo = ctk.CTkOptionMenu(
-            top_left, values=["Cargando..."], command=self.al_cambiar_periodo,
-            fg_color=COLORES["fondo_principal"], button_color=COLORES["panel_terciario"], 
-            button_hover_color=COLORES["primario_hover"], height=35, text_color=COLORES["texto_principal"], font=ctk.CTkFont(size=12, weight="bold")
+        ctk.CTkLabel(top_left, text="🎓 Periodo / Cuatrimestre:", font=ctk.CTkFont(size=13, weight="bold"), text_color=COLORES["texto_secundario"]).pack(anchor="w", pady=(0, 5))
+
+        # CONTENEDOR TIPO CARRUSEL (Botón Izq, Centro Clickable, Botón Der)
+        carrusel_frame = ctk.CTkFrame(top_left, fg_color=COLORES["fondo_principal"], corner_radius=10, border_color=COLORES["bordes"], border_width=1)
+        carrusel_frame.pack(fill="x", pady=2)
+
+        self.btn_cuatri_ant = ctk.CTkButton(
+            carrusel_frame, text="◀", width=35, height=35, font=ctk.CTkFont(size=12, weight="bold"),
+            fg_color=COLORES["panel_terciario"], hover_color=COLORES["primario_hover"],
+            command=self.cuatrimestre_anterior
         )
-        self.combo_periodo.pack(side="right", fill="x", expand=True)
+        self.btn_cuatri_ant.pack(side="left", padx=2, pady=2)
+
+        self.btn_cuatri_centro = ctk.CTkButton(
+            carrusel_frame, text="Cargando...", height=35, font=ctk.CTkFont(size=12, weight="bold"),
+            fg_color="transparent", hover_color=COLORES["panel_terciario"], text_color=COLORES["texto_principal"],
+            command=self.abrir_selector_cuatrimestre_por_anio
+        )
+        self.btn_cuatri_centro.pack(side="left", fill="x", expand=True, padx=2, pady=2)
+
+        self.btn_cuatri_sig = ctk.CTkButton(
+            carrusel_frame, text="▶", width=35, height=35, font=ctk.CTkFont(size=12, weight="bold"),
+            fg_color=COLORES["panel_terciario"], hover_color=COLORES["primario_hover"],
+            command=self.cuatrimestre_siguiente
+        )
+        self.btn_cuatri_sig.pack(side="right", padx=2, pady=2)
 
         self.entry_buscar = ctk.CTkEntry(
             left_frame, placeholder_text="🔎 Buscar maestro...", fg_color=COLORES["fondo_principal"], 
@@ -173,13 +193,104 @@ class VistaHorarios(ctk.CTkFrame):
 
     def cargar_datos_bd(self):
         periodos = obtener_periodos()
-        if periodos:
-            self.periodos_dict = {p[1]: p[0] for p in periodos}
-            self.combo_periodo.configure(values=list(self.periodos_dict.keys()))
-            if not self.combo_periodo.get() or self.combo_periodo.get() not in self.periodos_dict: 
-                self.combo_periodo.set(list(self.periodos_dict.keys())[0])
+        periodos_existentes = {p[1]: p[0] for p in periodos} if periodos else {}
+        
+        anos = [2025, 2026, 2027, 2028, 2029, 2030]
+        cuatris_base = [
+            ("Enero - Abril", "-01-01", "-04-30"),
+            ("Mayo - Agosto", "-05-01", "-08-31"),
+            ("Septiembre - Diciembre", "-09-01", "-12-31")
+        ]
+        
+        for ano in anos:
+            for nombre_c, ini, fin in cuatris_base:
+                nombre_completo = f"{nombre_c} {ano}"
+                if nombre_completo not in periodos_existentes:
+                    f_ini = f"{ano}{ini}"
+                    f_fin = f"{ano}{fin}"
+                    nuevo_id = crear_periodo(nombre_completo, f_ini, f_fin)
+                    periodos_existentes[nombre_completo] = nuevo_id
+
+        periodos_actualizados = obtener_periodos()
+        if periodos_actualizados:
+            self.periodos_dict = {p[1]: p[0] for p in periodos_actualizados}
+            keys = list(self.periodos_dict.keys())
+            if keys:
+                self.cambiar_periodo_activo(keys[0])
+
         self.refrescar_combo_turnos()
         self.refrescar_lista_maestros()
+
+    def cambiar_periodo_activo(self, nombre_periodo):
+        self.periodo_actual_nombre = nombre_periodo
+        self.btn_cuatri_centro.configure(text=nombre_periodo)
+        self.refrescar_lista_maestros()
+
+    def cuatrimestre_anterior(self):
+        values = list(self.periodos_dict.keys())
+        actual = self.periodo_actual_nombre
+        if actual in values:
+            idx = values.index(actual)
+            if idx < len(values) - 1:
+                self.cambiar_periodo_activo(values[idx + 1])
+
+    def cuatrimestre_siguiente(self):
+        values = list(self.periodos_dict.keys())
+        actual = self.periodo_actual_nombre
+        if actual in values:
+            idx = values.index(actual)
+            if idx > 0:
+                self.cambiar_periodo_activo(values[idx - 1])
+
+    def abrir_selector_cuatrimestre_por_anio(self):
+        modal = ctk.CTkToplevel(self)
+        modal.title("Seleccionar Cuatrimestre")
+        modal.geometry("380x350")
+        modal.configure(fg_color=COLORES["fondo_principal"])
+        modal.transient(self.winfo_toplevel())
+        modal.grab_set()
+
+        ctk.CTkLabel(modal, text="📅 Selecciona el Año", font=ctk.CTkFont(size=18, weight="bold"), text_color=COLORES["texto_principal"]).pack(pady=(20, 10))
+
+        anos_disponibles = ["2025", "2026", "2027", "2028", "2029", "2030"]
+        combo_anos = ctk.CTkOptionMenu(modal, values=anos_disponibles, height=35, font=ctk.CTkFont(size=13, weight="bold"))
+        combo_anos.pack(fill="x", padx=30, pady=10)
+        combo_anos.set("2026")
+
+        ctk.CTkLabel(modal, text="📚 Selecciona el Cuatrimestre", font=ctk.CTkFont(size=16, weight="bold"), text_color=COLORES["texto_principal"]).pack(pady=(15, 5))
+
+        cuatris_opciones = [
+            "Enero - Abril",
+            "Mayo - Agosto",
+            "Septiembre - Diciembre"
+        ]
+
+        combo_cuatris = ctk.CTkOptionMenu(modal, values=cuatris_opciones, height=35, font=ctk.CTkFont(size=13, weight="bold"))
+        combo_cuatris.pack(fill="x", padx=30, pady=10)
+
+        def confirmar_seleccion():
+            ano_sel = combo_anos.get()
+            cuatri_sel = combo_cuatris.get()
+            nombre_armado = f"{cuatri_sel} {ano_sel}"
+            
+            if nombre_armado not in self.periodos_dict:
+                if "Enero" in cuatri_sel:
+                    f_ini, f_fin = f"{ano_sel}-01-01", f"{ano_sel}-04-30"
+                elif "Mayo" in cuatri_sel:
+                    f_ini, f_fin = f"{ano_sel}-05-01", f"{ano_sel}-08-31"
+                else:
+                    f_ini, f_fin = f"{ano_sel}-09-01", f"{ano_sel}-12-31"
+                
+                nuevo_id = crear_periodo(nombre_armado, f_ini, f_fin)
+                self.periodos_dict[nombre_armado] = nuevo_id
+
+            self.cambiar_periodo_activo(nombre_armado)
+            modal.destroy()
+
+        ctk.CTkButton(
+            modal, text="Aceptar", height=40, fg_color=COLORES["primario"],
+            font=ctk.CTkFont(size=13, weight="bold"), command=confirmar_seleccion
+        ).pack(fill="x", padx=30, pady=20)
 
     def refrescar_combo_turnos(self):
         turnos = obtener_turnos()
@@ -233,8 +344,7 @@ class VistaHorarios(ctk.CTkFrame):
         ctk.CTkButton(modal, text="Guardar Turno", height=45, corner_radius=10, fg_color=COLORES["primario"], command=guardar_nuevo_turno).pack(fill="x", padx=30, pady=25)
 
     def abrir_modal_gestion_cuatrimestre(self):
-        """Ventana modal para matricular o dar de alta maestros en el cuatrimestre seleccionado."""
-        periodo_actual_nombre = self.combo_periodo.get()
+        periodo_actual_nombre = self.periodo_actual_nombre
         if periodo_actual_nombre not in self.periodos_dict:
             return messagebox.showwarning("Atención", "Selecciona un cuatrimestre válido primero.")
         
@@ -321,7 +431,7 @@ class VistaHorarios(ctk.CTkFrame):
     def al_cambiar_periodo(self, _=None): self.refrescar_lista_maestros()
 
     def refrescar_lista_maestros(self):
-        nombre_p = self.combo_periodo.get()
+        nombre_p = self.periodo_actual_nombre
         if nombre_p not in self.periodos_dict: return
         self.maestros_lista, self.maestros_dict = [], {}
         for m in obtener_maestros():
@@ -404,14 +514,14 @@ class VistaHorarios(ctk.CTkFrame):
         self.maestro_seleccionado_individual = nombre_m
         self.lbl_avatar.configure(text="".join([p[0] for p in nombre_m.strip().split()[:2]]).upper() if nombre_m.strip() else "DO")
         self.lbl_nombre_docente.configure(text=nombre_m)
-        self.lbl_periodo_tag.configure(text=f"Periodo: {self.combo_periodo.get()}")
+        self.lbl_periodo_tag.configure(text=f"Periodo: {self.periodo_actual_nombre}")
 
         for f in self.dias_frames.values():
             f["frame"].configure(fg_color=COLORES["panel_terciario"])
             f["label"].configure(text="--:--\n--:--", text_color=COLORES["texto_secundario"])
 
-        if nombre_m in self.maestros_dict and self.combo_periodo.get() in self.periodos_dict:
-            horario = obtener_horario_maestro(self.maestros_dict[nombre_m], self.periodos_dict[self.combo_periodo.get()])
+        if nombre_m in self.maestros_dict and self.periodo_actual_nombre in self.periodos_dict:
+            horario = obtener_horario_maestro(self.maestros_dict[nombre_m], self.periodos_dict[self.periodo_actual_nombre])
             if horario:
                 t_nombre = horario[1].lower()
                 if "matutino" in t_nombre:
@@ -441,7 +551,7 @@ class VistaHorarios(ctk.CTkFrame):
         if self.combo_turno.get() == "Sin turnos creados":
             return NotificacionToast(self, "Crea un turno primero.", "error")
             
-        asignar_horario_maestro(self.maestros_dict[self.maestro_seleccionado_individual], self.periodos_dict[self.combo_periodo.get()], self.turnos_dict[self.combo_turno.get()])
+        asignar_horario_maestro(self.maestros_dict[self.maestro_seleccionado_individual], self.periodos_dict[self.periodo_actual_nombre], self.turnos_dict[self.combo_turno.get()])
         NotificacionToast(self, f"Turno configurado para {self.maestro_seleccionado_individual[:15]}.", "exito")
         self.refrescar_lista_maestros()
 
@@ -453,7 +563,7 @@ class VistaHorarios(ctk.CTkFrame):
             return NotificacionToast(self, "Crea un turno primero.", "error")
             
         for n in seleccionados: 
-            asignar_horario_maestro(self.maestros_dict[n], self.periodos_dict[self.combo_periodo.get()], self.turnos_dict[self.combo_turno.get()])
+            asignar_horario_maestro(self.maestros_dict[n], self.periodos_dict[self.periodo_actual_nombre], self.turnos_dict[self.combo_turno.get()])
             
         NotificacionToast(self, f"¡Sincronizado! Tolerancia ajustada para {len(seleccionados)} docentes.", "exito")
         self.refrescar_lista_maestros()

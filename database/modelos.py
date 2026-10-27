@@ -77,9 +77,6 @@ def inicializar_base_datos():
     conn.commit()
     conn.close()
 
-# Inicializar automáticamente al importar el módulo
-inicializar_base_datos()
-
 
 # ==========================================
 # GESTIÓN DE MAESTROS
@@ -432,9 +429,50 @@ def obtener_horario_maestro_por_fecha(nombre_maestro, fecha_str):
     res = cursor.fetchone()
     conn.close()
     
-    # Si no se encuentra un periodo asignado para esa fecha específica, 
-    # reacciona buscando el último turno activo como respaldo.
     if not res:
         return obtener_horario_activo_maestro(nombre_maestro)
         
     return res
+
+
+def asegurar_periodos_automaticos():
+    """
+    Crea automáticamente los tres cuatrimestres estándar (Enero-Abril, Mayo-Agosto, Septiembre-Diciembre)
+    para un rango seguro: desde 4 años atrás hasta 4 años en el futuro.
+    Esto garantiza que cualquier ponchada histórica o futura siempre tenga su cuatrimestre correspondiente
+    sin arriesgar datos previos ni duplicar registros.
+    """
+    conn = obtener_conexion()
+    cursor = conn.cursor()
+    
+    anio_actual = datetime.now().year
+    anos_rango = range(anio_actual - 4, anio_actual + 5) # 4 años atrás y 4 adelante
+    
+    cuatris_base = [
+        ("Enero - Abril", "-01-01", "-04-30"),
+        ("Mayo - Agosto", "-05-01", "-08-31"),
+        ("Septiembre - Diciembre", "-09-01", "-12-31")
+    ]
+    
+    for ano in anos_rango:
+        for nombre_c, ini, fin in cuatris_base:
+            nombre_completo = f"{nombre_c} {ano}"
+            
+            cursor.execute("SELECT id FROM periodo WHERE nombre = ?", (nombre_completo,))
+            if not cursor.fetchone():
+                f_ini = f"{ano}{ini}"
+                f_fin = f"{ano}{fin}"
+                cursor.execute("""
+                    INSERT INTO periodo (nombre, fechaInicio, fechaFinal)
+                    VALUES (?, ?, ?)
+                """, (nombre_completo, f_ini, f_fin))
+                
+    conn.commit()
+    conn.close()
+
+
+# ==========================================
+# INICIALIZACIÓN AUTOMÁTICA AL IMPORTAR
+# ==========================================
+inicializar_base_datos()
+asegurar_periodos_automaticos()
