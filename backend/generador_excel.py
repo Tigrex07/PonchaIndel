@@ -7,7 +7,27 @@ from openpyxl.drawing.image import Image
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
-from database.modelos import obtener_horario_maestro_por_fecha
+from database.conexion import obtener_conexion
+
+def obtener_horario_estricto_maestro_por_fecha(nombre_maestro, fecha_str):
+    """Obtiene el turno del maestro estrictamente para el periodo de la fecha. 
+    Retorna None si el maestro no tiene un horario asignado en ese periodo."""
+    conn = obtener_conexion()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT t.horaEntrada, t.horaSalida
+        FROM horarios h
+        JOIN maestros m ON h.idmaestro = m.id
+        JOIN turno t ON h.idturno = t.id
+        JOIN periodo p ON h.idperiodo = p.id
+        WHERE UPPER(m.nombre) = UPPER(?)
+          AND DATE(?) BETWEEN DATE(p.fechaInicio) AND DATE(p.fechaFinal)
+          AND h.activo = 1
+        LIMIT 1
+    """, (nombre_maestro, fecha_str))
+    res = cursor.fetchone()
+    conn.close()
+    return res
 
 class GeneradorExcelProgramatico:
 
@@ -155,26 +175,28 @@ class GeneradorExcelProgramatico:
 
         # --- OBTENER HORARIO DINÁMICO POR FECHA Y CUATRIMESTRE ---
         fecha_dia_str = dt_dia.strftime("%Y-%m-%d")
-        horario_asignado = obtener_horario_maestro_por_fecha(nombre_docente, fecha_dia_str)
+        horario_asignado = obtener_horario_estricto_maestro_por_fecha(nombre_docente, fecha_dia_str)
         
-        if horario_asignado and horario_asignado[0] and horario_asignado[1]:
+        tiene_horario = (horario_asignado is not None and horario_asignado[0] is not None and horario_asignado[1] is not None)
+
+        if tiene_horario:
             hora_oficial_str = str(horario_asignado[0]).strip()
             hora_oficial_salida_str = str(horario_asignado[1]).strip()
+
+            if len(hora_oficial_str.split(':')) == 2:
+                hora_oficial_str += ":00"
+            if len(hora_oficial_salida_str.split(':')) == 2:
+                hora_oficial_salida_str += ":00"
+
+            t_oficial = datetime.strptime(hora_oficial_str, "%H:%M:%S").time()
+            dt_oficial = datetime.combine(datetime.today(), t_oficial)
+            dt_tolerancia = dt_oficial + timedelta(minutes=10)
+            t_tolerancia = dt_tolerancia.time()
+            
+            t_oficial_sal = datetime.strptime(hora_oficial_salida_str, "%H:%M:%S").time()
         else:
-            hora_oficial_str = "08:00:00"
-            hora_oficial_salida_str = "16:00:00"
-
-        if len(hora_oficial_str.split(':')) == 2:
-            hora_oficial_str += ":00"
-        if len(hora_oficial_salida_str.split(':')) == 2:
-            hora_oficial_salida_str += ":00"
-
-        t_oficial = datetime.strptime(hora_oficial_str, "%H:%M:%S").time()
-        dt_oficial = datetime.combine(datetime.today(), t_oficial)
-        dt_tolerancia = dt_oficial + timedelta(minutes=10)
-        t_tolerancia = dt_tolerancia.time()
-        
-        t_oficial_sal = datetime.strptime(hora_oficial_salida_str, "%H:%M:%S").time()
+            t_tolerancia = None
+            t_oficial_sal = None
         # --------------------------------------------------------
 
         sub_dia = df_docente[df_docente["fecha"].apply(lambda x: self._es_mismo_dia(x, dt_dia))]
@@ -193,7 +215,7 @@ class GeneradorExcelProgramatico:
               
           try:
             t_ing = datetime.strptime(h_entrada_str, "%H:%M:%S").time()
-            if t_ing > t_tolerancia:
+            if tiene_horario and t_ing > t_tolerancia:
               dt_ing_val = datetime.combine(datetime.today(), t_ing)
               min_ret_dia = int((dt_ing_val - dt_tolerancia).total_seconds() / 60)
               cell_e.value = f"{h_entrada_str}\n(+{min_ret_dia}m Ret)"
@@ -203,7 +225,7 @@ class GeneradorExcelProgramatico:
           except ValueError:
             cell_e.value = h_entrada_str
         else:
-          if es_fin_de_semana:
+          if es_fin_de_semana or not tiene_horario:
             cell_e.value = ""
           else:
             cell_e.value = "FIE"
@@ -217,7 +239,7 @@ class GeneradorExcelProgramatico:
               
           try:
             t_sal = datetime.strptime(h_salida_str, "%H:%M:%S").time()
-            if t_sal < t_oficial_sal:
+            if tiene_horario and t_sal < t_oficial_sal:
               cell_s.value = f"{h_salida_str}\n(ST)"
               cell_s.font = font_alerta
             else:
@@ -225,7 +247,7 @@ class GeneradorExcelProgramatico:
           except ValueError:
             cell_s.value = h_salida_str
         else:
-          if len(entradas) > 0 and not es_fin_de_semana:
+          if len(entradas) > 0 and not es_fin_de_semana and tiene_horario:
             cell_s.value = "FIS"
             cell_s.font = font_alerta
           else:

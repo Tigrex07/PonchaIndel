@@ -13,7 +13,27 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
 import pandas as pd
 
-from database.modelos import obtener_horario_maestro_por_fecha
+from database.conexion import obtener_conexion
+
+def obtener_horario_estricto_maestro_por_fecha(nombre_maestro, fecha_str):
+    """Obtiene el turno del maestro estrictamente para el periodo de la fecha. 
+    Retorna None si el maestro no tiene un horario asignado en ese periodo."""
+    conn = obtener_conexion()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT t.horaEntrada, t.horaSalida
+        FROM horarios h
+        JOIN maestros m ON h.idmaestro = m.id
+        JOIN turno t ON h.idturno = t.id
+        JOIN periodo p ON h.idperiodo = p.id
+        WHERE UPPER(m.nombre) = UPPER(?)
+          AND DATE(?) BETWEEN DATE(p.fechaInicio) AND DATE(p.fechaFinal)
+          AND h.activo = 1
+        LIMIT 1
+    """, (nombre_maestro, fecha_str))
+    res = cursor.fetchone()
+    conn.close()
+    return res
 
 
 class GeneradorPDFPaginado:
@@ -176,22 +196,22 @@ class GeneradorPDFPaginado:
                     t_ing, t_sal = None, None
                     val_e, val_s = "", ""
 
-                    # --- OBTENER HORARIO DINÁMICO POR FECHA Y CUATRIMESTRE ---
+                    # --- OBTENER HORARIO ESTRICTO POR FECHA Y CUATRIMESTRE ---
                     fecha_dia_str = dt_dia.strftime("%Y-%m-%d")
-                    horario_asignado = obtener_horario_maestro_por_fecha(nombre_docente, fecha_dia_str)
+                    horario_asignado = obtener_horario_estricto_maestro_por_fecha(nombre_docente, fecha_dia_str)
                     
-                    if horario_asignado and horario_asignado[0]:
+                    tiene_horario = (horario_asignado is not None and horario_asignado[0] is not None and horario_asignado[1] is not None)
+
+                    if tiene_horario:
                         hora_oficial_str = str(horario_asignado[0]).strip()
+                        if len(hora_oficial_str.split(':')) == 2:
+                            hora_oficial_str += ":00"
+                        t_oficial = datetime.strptime(hora_oficial_str, "%H:%M:%S").time()
+                        dt_oficial = datetime.combine(datetime.today(), t_oficial)
+                        dt_tolerancia = dt_oficial + timedelta(minutes=10)
+                        t_tol = dt_tolerancia.time()
                     else:
-                        hora_oficial_str = "08:00:00"
-
-                    if len(hora_oficial_str.split(':')) == 2:
-                        hora_oficial_str += ":00"
-
-                    t_oficial = datetime.strptime(hora_oficial_str, "%H:%M:%S").time()
-                    dt_oficial = datetime.combine(datetime.today(), t_oficial)
-                    dt_tolerancia = dt_oficial + timedelta(minutes=10)
-                    t_tol = dt_tolerancia.time()
+                        t_tol = None
                     # --------------------------------------------------------
 
                     if len(entradas) > 0:
@@ -201,7 +221,7 @@ class GeneradorPDFPaginado:
                         try:
                             t_ing = datetime.strptime(h_ent_raw, "%H:%M:%S").time()
                             h_ent = t_ing.strftime("%H:%M")
-                            if t_ing > t_tol:
+                            if tiene_horario and t_ing > t_tol:
                                 dt_tol = datetime.combine(datetime.today(), t_tol)
                                 dt_ing_val = datetime.combine(datetime.today(), t_ing)
                                 min_ret = int((dt_ing_val - dt_tol).total_seconds() / 60)
@@ -211,7 +231,7 @@ class GeneradorPDFPaginado:
                         except ValueError:
                             val_e = h_ent_raw[:5]
                     else:
-                        val_e = "" if es_fin_de_semana else "FI"
+                        val_e = "" if (es_fin_de_semana or not tiene_horario) else "FI"
 
                     if len(salidas) > 0:
                         h_sal_raw = str(salidas[0])
@@ -223,7 +243,7 @@ class GeneradorPDFPaginado:
                         except ValueError:
                             val_s = h_sal_raw[:5]
                     else:
-                        if len(entradas) > 0 and not es_fin_de_semana:
+                        if len(entradas) > 0 and not es_fin_de_semana and tiene_horario:
                             val_s = "FIS"
 
                     if t_ing and t_sal:
